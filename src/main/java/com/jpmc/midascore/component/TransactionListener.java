@@ -1,6 +1,7 @@
 package com.jpmc.midascore.component;
 
 import com.jpmc.midascore.foundation.Transaction;
+import com.jpmc.midascore.foundation.Incentive;
 import com.jpmc.midascore.repository.TransactionRepository;
 import com.jpmc.midascore.repository.UserRepository;
 import com.jpmc.midascore.entity.UserRecord;
@@ -10,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
 
 @Component
 public class TransactionListener {
@@ -36,20 +38,25 @@ public class TransactionListener {
             UserRecord sender = user_repo.findById(transaction.getSenderId());
             assert(sender.getId() == transaction.getSenderId());
 
-            if (transaction.getAmount() >= 0 && sender.getBalance() >= transaction.getAmount()) {
-                TransactionRecord record = new TransactionRecord(transaction.getAmount(), transaction.getSenderId(), transaction.getRecipientId());
-                UserRecord new_recipient = new UserRecord (recipient.getName(), recipient.getBalance() + transaction.getAmount());
-                UserRecord new_sender = new UserRecord (sender.getName(), sender.getBalance() - transaction.getAmount());
-                transaction_repo.save(record);
-                user_repo.save(new_recipient);
-                user_repo.save(new_sender);
-                
-                // Check waldorf transaction.
-                String out = String.format(
-                    "sender - %s: balance - %f || recipient - %s: balance - %f", 
-                    new_sender.getName(), new_sender.getBalance(), new_recipient.getName(), new_recipient.getBalance());
-                logger.info(out);
-            }
+            // Validate transaction.
+            if (transaction.getAmount() < 0 || sender.getBalance() < transaction.getAmount())  return;
+
+            // Determine incentive.
+            RestTemplate rest = new RestTemplate();
+            Incentive incentive = rest.postForObject("http://localhost:8080/incentive", transaction, Incentive.class);
+
+            TransactionRecord record = new TransactionRecord(transaction.getAmount(), transaction.getSenderId(), transaction.getRecipientId(), incentive.getAmount());
+            UserRecord new_recipient = new UserRecord (recipient.getName(), recipient.getBalance() + transaction.getAmount() + incentive.getAmount());
+            UserRecord new_sender = new UserRecord (sender.getName(), sender.getBalance() - transaction.getAmount());
+            transaction_repo.save(record);
+            user_repo.save(new_recipient);
+            user_repo.save(new_sender);
+            
+            // Check waldorf transaction.
+            String out = String.format(
+                "sender - %s: balance - %f || recipient - %s: balance - %f", 
+                new_sender.getName(), new_sender.getBalance(), new_recipient.getName(), new_recipient.getBalance());
+            logger.info(out);
 
 
         } catch (Exception e) { 

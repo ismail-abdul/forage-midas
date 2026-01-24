@@ -61,7 +61,7 @@
 			<version>1.19.1</version>
 			<scope>test</scope>
 		</dependency>
-	</dependencies>
+ </dependencies>
 
 	<build>
 		<plugins>
